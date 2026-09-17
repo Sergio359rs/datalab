@@ -168,13 +168,11 @@ Recuerden su respuesta escrita de la semana pasada:
 > **¿Qué debería pasar si se intenta insertar un experimento con un
 > `id_proyecto` que no existe?**
 
+El sistema debe rechazar la inserción, porque experimento.id_proyecto es una llave foránea que debe hacer referencia a un id_proyecto existente en la tabla proyecto. Esto garantiza la integridad referencial y evita que existan experimentos asociados a proyectos inexistentes.
+
 Expliquen qué debería hacer el sistema y por qué.
 
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
+La base de datos debe rechazar la inserción del experimento, porque experimento.id_proyecto es una llave foránea que debe hacer referencia a un proyecto existente. Si se permitiera insertar el registro, se generaría una referencia inválida y se perdería la integridad referencial de la base de datos.
 
 # 5. ¿Qué ocurre cuando se elimina una fila referenciada?
 
@@ -275,11 +273,7 @@ ese proyecto.
 ¿Por qué podría ser importante impedir que se elimine un proyecto que
 todavía tiene experimentos?
 
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
+Porque los experimentos dependen del proyecto al que están asociados. Si se eliminara el proyecto mientras los experimentos permanecen, quedarían registros sin una referencia válida. Por eso, utilizar RESTRICT permite proteger la información y obliga a revisar primero los experimentos relacionados antes de eliminar el proyecto.
 
 ## 6.2 `CASCADE`
 
@@ -357,11 +351,7 @@ Para utilizar esta estrategia, la columna FK debe permitir `NULL`.
 ¿Qué información se perdería y qué información se conservaría en este
 escenario?
 
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
+Se perdería la relación entre el experimento y el proyecto, porque experimento.id_proyecto pasaría a NULL. Sin embargo, se conservaría la información propia del experimento, siempre que sus demás atributos permanezcan en la tabla. SET NULL tendría sentido únicamente si un experimento puede continuar existiendo aunque ya no esté asociado a un proyecto.
 
 # 7. Ejercicio: política para cada FK de DataLab
 
@@ -387,11 +377,7 @@ justifíquenla.
 No respondan solamente `CASCADE`, `RESTRICT` o `SET NULL`. Expliquen la
 razón desde el punto de vista del negocio.
 
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
+Deberían eliminarse mediante CASCADE, porque las métricas están asociadas directamente al modelo y pierden su contexto cuando este deja de existir.
 
 # 8. ¿Qué es la normalización?
 
@@ -528,19 +514,21 @@ Esto dificulta:
 **c)** ¿Qué problema tiene este diseño si quisieran buscar todos los
 modelos con `accuracy` mayor a `0.90`?
 
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
+El problema es que accuracy, f1 y precision están almacenados juntos dentro de una sola cadena de texto. Esto dificulta consultar directamente el valor de accuracy, además de dificultar la validación, comparación y análisis de cada métrica individualmente.
 
 **d)** ¿Cómo lo corregirían?
 
 > **Pista:** ya tienen la respuesta en su propio esquema de la Semana 2.
 
-------------------------------------------------------------------------
+Se debe almacenar cada métrica como un registro independiente:
 
-------------------------------------------------------------------------
+id_metrica
+id_modelo
+nombre_metrica
+valor
+fecha_calculo
 
-------------------------------------------------------------------------
+De esta manera cada valor es atómico y se puede consultar individualmente.
 
 ## 9.5 Relación con el esquema DataLab
 
@@ -701,17 +689,29 @@ solo una?
 
 ¿Y `fecha_ejecucion`?
 
-------------------------------------------------------------------------
+La llave primaria es: (id_dataset, id_experimento) 
 
-------------------------------------------------------------------------
+nombre_dataset depende únicamente de id_dataset. fecha_ejecucion depende únicamente de id_experimento.Por lo tanto, ambos atributos dependen solamente de una parte de la llave primaria compuesta. Esto constituye una dependencia parcial.
 
 **f)** ¿Cómo se corrige esta dependencia parcial?
 
-------------------------------------------------------------------------
+Los atributos deben colocarse en las tablas a las que pertenecen:
 
-------------------------------------------------------------------------
+DATASET
+id_dataset
+nombre_dataset
 
-------------------------------------------------------------------------
+EXPERIMENTO
+id_experimento
+fecha_ejecucion
+
+Y uso_dataset debe funcionar únicamente como tabla de asociación:
+
+USO_DATASET
+id_dataset
+id_experimento
+
+Así se elimina la dependencia parcial.
 
 ## 10.6 Idea práctica para DataLab
 
@@ -826,17 +826,34 @@ depende de `id_proyecto`?
 
 ¿Cómo se llama esa cadena de dependencia?
 
-------------------------------------------------------------------------
+nombre_proyecto depende de id_proyecto, no directamente de id_experimento.
 
-------------------------------------------------------------------------
+La cadena es:
+
+id_experimento → id_proyecto → nombre_proyecto
+
+Esto se denomina dependencia transitiva.
 
 **h)** ¿Cómo se corrige?
 
-------------------------------------------------------------------------
+nombre_proyecto debe permanecer en la tabla proyecto.
 
-------------------------------------------------------------------------
+En experimento debe mantenerse solamente id_proyecto como llave foránea.
 
-------------------------------------------------------------------------
+Por ejemplo:
+
+PROYECTO
+id_proyecto
+nombre
+descripcion
+
+EXPERIMENTO
+id_experimento
+id_proyecto
+fecha_ejecucion
+configuracion
+
+Así se elimina la dependencia transitiva.
 
 ## 11.5 Corrección conceptual
 
@@ -884,9 +901,7 @@ siguiendo las reglas de conversión E-R → relacional:
 
 > **¿Por qué sería esperable que ya esté en 3FN?**
 
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
+Porque una correcta transformación del modelo E-R al modelo relacional separa las entidades, coloca los atributos en la entidad correspondiente y representa las relaciones mediante llaves foráneas o tablas puente. Esto ayuda a evitar dependencias parciales y transitivas. Sin embargo, se debe realizar una auditoría para comprobar que efectivamente se cumplen las condiciones de 1FN, 2FN y 3FN.
 
 ### Pista conceptual
 
@@ -948,9 +963,11 @@ Antes de modificar el modelo, revisen los ejemplos de la formalización.
 > ¿Alguno de los tres ejemplos "malos" de la formalización les recordó
 > algo de un borrador anterior de su propio esquema?
 
-------------------------------------------------------------------------
+Sí. Los ejemplos pueden compararse con el borrador anterior para identificar situaciones como:
 
-------------------------------------------------------------------------
+almacenar varias métricas en una sola columna, repetir información propia de otra entidad, colocar atributos de dataset o proyecto en tablas donde no corresponden.
+
+Si se encuentra alguna situación similar, se debe identificar el problema y realizar la corrección correspondiente.
 
 Si encuentran una situación similar:
 
@@ -969,14 +986,15 @@ Utilicen la siguiente matriz:
 
 Tabla | ¿Valores atómicos? (1FN) | ¿Sin dependencia parcial? (2FN, solo si aplica) | ¿Sin dependencia transitiva? (3FN)|
 -----------|-----------|----------------|----------------|
-`cientifico_datos`| -- | --| -- |
-`proyecto`| -- | --| -- |                        
-`dataset`| -- | --| -- |                                
-`experimento`| -- | --| -- |                                 
-`modelo`| -- | --| -- |                             
-`metrica`| -- | --| -- |                                  
-`participacion`| -- | --| -- |                                 
-`uso_dataset`| -- | --| -- |                           
+| Tabla              | 1FN           | 2FN           | 3FN           |
+| `cientifico_datos` | Por verificar | Por verificar | Por verificar |
+| `proyecto`         | Por verificar | Por verificar | Por verificar |
+| `dataset`          | Por verificar | Por verificar | Por verificar |
+| `experimento`      | Por verificar | Por verificar | Por verificar |
+| `modelo`           | Por verificar | Por verificar | Por verificar |
+| `metrica`          | Sí*           | Sí*           | Sí*           |
+| `participacion`    | Por verificar | Por verificar | Por verificar |
+| `uso_dataset`      | Sí*           | Sí*           | Por verificar |
 
 
 ### Para cada tabla deben preguntarse:
@@ -1026,6 +1044,8 @@ Preguntar:
 Si la respuesta es sí, no se observa el problema planteado en el ejemplo
 `metrica_mala`.
 
+Sí. nombre_metrica contiene el nombre de una métrica y valor contiene su valor correspondiente. No se presenta el problema de almacenar varias métricas dentro de una misma celda.
+
 ### 2FN
 
 Si la PK es únicamente:
@@ -1037,6 +1057,8 @@ id_metrica
 no existe una PK compuesta y, por tanto, no se presenta el problema de
 dependencia parcial planteado para 2FN.
 
+No como la llave primaria está formada por una sola columna, no existe una llave primaria compuesta y, por lo tanto, no puede presentarse una dependencia parcial.
+
 ### 3FN
 
 Preguntar:
@@ -1045,6 +1067,8 @@ Preguntar:
 
 Si no existe esa dependencia, la tabla cumple el criterio analizado para
 3FN.
+
+Si no existe esa dependencia, la tabla cumple el criterio analizado para 3FN.
 
 ------------------------------------------------------------------------
 
